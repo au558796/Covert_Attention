@@ -1,0 +1,222 @@
+---
+title: "Participant_A"
+author: "Dana Jensen"
+date: "May 10, 2019"
+output: html_document
+---
+-----------------CLEAN UP--------------------
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:/Users/danaj/OneDrive/Desktop")
+library(pacman)
+p_load(readxl, data.table, dplyr, lmerTest, ggplot2, gridExtra)
+PA <- data.frame(read_excel("Participant A.xls"))
+
+# get rid of empyt first row
+PA = PA[-1,]
+
+#Rename headers to things that make sense
+setnames(PA, old=c("Display","Quadrant", "Trial.Type", "RT..msec."), new=c("DC", "QP","Shift","RT"))
+
+#only within/between trials (exclide valid and catch)
+PA2 <- subset(PA, Shift == 'within' | Shift == 'between' )
+
+# Sort by: DC, VF, VP, QP, Shift, RT
+PA3 <- PA2[order(PA2$DC,PA2$VF,PA2$VP,PA2$QP,PA2$Shift,PA2$RT),] 
+
+#anticipation responses <100 RT, attention distraction >999 RT. Replace with mean for each condition
+
+# make an average of means for each condition
+mean<-PA3 %>%
+  group_by(DC) %>%
+  summarise_at(vars(RT), funs(mean(., na.rm=TRUE)))
+
+# rep for length DC = diagonal and DC = paralell
+# index first row, rep lenth PA3$DC == diagonal
+# index second row, rep lenth PA3$DC == paralell
+dmean <- as.data.frame(rep(mean$RT[mean$DC=='Diagonal'], length(which(PA3$DC=='Diagonal'))))
+pmean <- as.data.frame(rep(mean$RT[mean$DC=='Parallel'], length(which(PA3$DC=='Parallel'))))
+colnames(dmean) <- "mean"
+colnames(pmean) <- "mean"
+
+# combine into one list and add as column in df
+mean<-rbind(dmean,pmean)
+PA3<-cbind(PA3,mean)
+colnames(PA3) <- c("Subject", "Block", "Trial","DC","VF","VP","QP","Shift","Cue","Target", "RT","mean")
+PA3 <- subset(PA3, select = c("DC", "VF", "VP", "QP", "Shift", "RT", "mean"))
+
+#save for next time
+write.csv(PA3, file = "PA3.csv", row.names = F)
+PA3<-read.csv("PA3.csv")
+sum(PA3$VP=='bottom'& PA3$VF == 'left')
+
+
+# START FRESH
+PA <- data.frame(read_excel("Participant A.xls"))
+PA = PA[-1,]
+setnames(PA, old=c("Display","Quadrant", "Trial.Type", "RT..msec."), new=c("DC", "QP","Shift","RT"))
+PA <- PA[order(PA$DC,PA$VF,PA$VP,PA$QP,PA$Shift,PA$RT),] 
+PA <- subset(PA, Shift != 'catch')
+
+```
+
+----------------COST BASIS-------------
+
+```{r}
+# need new column with rt for left/right, d/p/ bottom/top
+new_PA<-PA %>%
+   group_by(DC, VF, VP) %>% 
+   summarise_at(vars("RT"), mean)
+
+# rows with rt >999
+PA[(PA[,11]>999),]
+#50 diagonal, left, bottom, lower
+PA[50,11]<- new_PA[1,4]
+
+# rows with rt <100
+PA[(PA[,11]<100),]
+#11 diagonal, left, bottom, lower
+PA[11,11]<- new_PA[1,4]
+#491 parallel, left, bottom, lower
+PA[491,11]<- new_PA[1,4]
+
+# calculate new means
+new_means<-PA %>%
+   group_by(DC, VF, VP) %>% 
+   summarise_at(vars("RT"), mean)
+
+# save that ish
+write.csv(PA, "good_pa.csv", row.names = FALSE)
+
+```
+
+-----------------MODELS--------------------
+
+```{r}
+PA <- data.frame(read.csv("good_pa.csv"))
+PA$log <- log(PA$RT)
+
+#Trials in which the target occurred in a different location within the same object than the cue would be higher than for trials which the target and the cue occurred at the same location in the same object. 
+
+#compare valid to within trials
+
+dat1 <- subset(PA, Shift == 'valid' | Shift == 'within')
+
+g1 <- ggplot(dat1, aes(Shift, RT, colour = Shift))+
+  geom_boxplot()+
+  theme_minimal()+
+  labs(title = "Valid v. Within", x = "RT", y = NULL)
+
+model0 <- lm(log(RT) ~ 1, data=dat1)
+model1 <- lm(log(RT) ~ Shift, data=dat1)
+model2 <- lm(log(RT) ~ Shift + DC, data=dat1)
+model3 <- lm(log(RT) ~ Shift + DC + VF, data=dat1)
+model4 <- lm(log(RT) ~ Shift + DC + VF + VP, data=dat1)
+model5 <- lm(log(RT) ~ Shift * DC * VF * VP, data=dat1)
+
+summary(model0)
+summary(model1)
+summary(model2)
+summary(model3)
+summary(model4)
+summary(model5)
+
+hyp1<-anova(model0,model1,model2,model3,model4,model5)
+hyp1
+
+AIC(model0)
+AIC(model1)
+AIC(model2)
+AIC(model3)
+AIC(model4)
+AIC(model5)
+
+#Trials in which the target occurred in a different object than the cue would be higher than for trials which the target and the cue occurred at the same object and a different location. 
+
+#compare between and within trials
+dat2 <- subset(PA, Shift == 'between' | Shift == 'within')
+
+g2 <- ggplot(dat2, aes(Shift, RT, color = Shift))+
+  geom_boxplot()+
+  theme_minimal()+
+  labs(title = "Within v. Between", x = "RT", y = NULL)
+
+model00 <- lm(log(RT) ~ 1, data=dat2)
+model11 <- lm(log(RT) ~ Shift, data=dat2)
+model22 <- lm(log(RT) ~ Shift + DC, data=dat2)
+model33 <- lm(log(RT) ~ Shift + DC + VF, data=dat2)
+model44 <- lm(log(RT) ~ Shift + DC + VF + VP, data=dat2)
+model55 <- lm(log(RT) ~ Shift * DC * VF * VP, data=dat2)
+
+summary(model00)
+summary(model11)
+summary(model22)
+summary(model33)
+summary(model44)
+summary(model55)
+
+hyp2<-anova(model00,model11,model22,model33,model44,model55)
+hyp2
+
+AIC(model00)
+AIC(model11)
+AIC(model22)
+AIC(model33)
+AIC(model44)
+AIC(model55)
+
+```
+
+-----------------Graphs--------------------
+
+```{r}
+#rt before log
+rt1 <- ggplot(PA, aes(RT))+
+  geom_density(kernel = "gaussian")+
+  theme_minimal()+
+  labs(title = "Raw Reaction Time", x = "RT", y = NULL)
+rt1
+
+#rt after log
+rt2 <- ggplot(PA, aes(log(RT)))+
+  geom_density(kernel = "gaussian")+
+  theme_minimal()+
+  labs(title = "Log Reaction Time", x = "RT", y = NULL)
+rt2
+
+grid.arrange(rt1,rt2)
+
+# hypothesis 1 box
+g1
+# hypothesis 2 box
+g2
+
+grid.arrange(g1,g2)
+
+#scatter plots
+h1<- ggplot(dat1, aes(log(RT), Trial, color = DC))+
+  geom_jitter(stat = "identity")+
+  facet_wrap(VF~VP, nrow = 1)+
+  theme_minimal()+
+  geom_smooth(stat = "smooth", method = "lm")+
+  labs(title = "Valid v. Within", x = "RT", y = "Trial")
+h1
+
+h2<- ggplot(dat2, aes(log(RT), Trial, color = DC))+
+  geom_jitter(stat = "identity")+
+  facet_wrap(VF~VP, nrow = 1)+
+  theme_minimal()+
+  geom_smooth(stat = "smooth", method = "lm")+
+  labs(title = "Within v. Between", x = "RT", y = "Trial")
+h2
+
+grid.arrange(h1,h2)
+
+```
+
+```{r}
+
+citation()
+
+```
